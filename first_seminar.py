@@ -33,19 +33,30 @@ if __name__ == "__main__":
     yuv_result = translator.rgb_to_yuv(original_image)
     rgb_restored = translator.yuv_to_rgb(yuv_result)
 
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
     
-    axes[0].imshow(original_image)
-    axes[0].set_title("Original RGB")
+    axes[0,0].imshow(original_image)
+    axes[0,0].set_title("Original RGB")
     
-    axes[1].imshow(np.clip(yuv_result, 0, 255).astype(np.uint8))
-    axes[1].set_title("YUV Space (Visualized as RGB)")
+    axes[0,1].imshow(np.clip(yuv_result, 0, 255).astype(np.uint8))
+    axes[0,1].set_title("YUV Space (Visualized as RGB)")
     
-    axes[2].imshow(np.clip(rgb_restored, 0, 255).astype(np.uint8))
-    axes[2].set_title("Restored RGB")
-    
+    axes[1,0].imshow(np.clip(rgb_restored, 0, 255).astype(np.uint8))
+    axes[1,0].set_title("Restored RGB")
 
-    for ax in axes:
+    # visualize the quantization error (when clamping and casting to an integer):
+    abs_error = np.abs(rgb_restored - original_image.astype(np.float32))
+    mae = np.mean(abs_error, axis=-1) # mean absolute error of each pixel (mean over the last dimension)
+    min_err = np.min(mae)
+    max_err = np.max(mae)
+    im = axes[1,1].imshow(mae/max_err, cmap='inferno')
+    axes[1,1].set_title("Mean Absolute Error: |recovered - original|")
+    fig.colorbar(im, ax=axes[1,1], fraction=0.046, pad=0.04)
+
+    print(f"Minimum MAE: {min_err}")
+    print(f"Maximum MAE: {max_err}")
+    
+    for ax in axes.flat:
         ax.axis('off')
         
     plt.show()
