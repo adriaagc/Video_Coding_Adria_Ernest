@@ -1,6 +1,12 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
+from PIL import Image
+import matplotlib.image as mpimg
+from scipy.fft import fft2, ifft2, fftshift, fft, ifft, ifftshift
+import cv2
+import math
+
 class ColorTranslator:
 
     def rgb_to_yuv(self, rgb_img):
@@ -8,7 +14,7 @@ class ColorTranslator:
         rgb_img = rgb_img.astype(np.float32) # more precision
         yuv_img = np.zeros_like(rgb_img)
         
-        yuv_img[:,:,0] = 0.257 * rgb_img[:,:,0] + 0.504 * rgb_img[:,:,1] + 0.098 * rgb_img[:,:,2] + 16      # Y (lumma)
+        yuv_img[:,:,0] = 0.257 * rgb_img[:,:,0] + 0.504 * rgb_img[:,:,1] + 0.098 * rgb_img[:,:,2] + 16      # Y (luma)
         yuv_img[:,:,1] = -0.148 * rgb_img[:,:,0] - 0.291 * rgb_img[:,:,1] + 0.439 * rgb_img[:,:,2] + 128    # U (Cb)
         yuv_img[:,:,2] = 0.439 * rgb_img[:,:,0] - 0.368 * rgb_img[:,:,1] - 0.071 * rgb_img[:,:,2] + 128     # V (Cr)
 
@@ -22,6 +28,55 @@ class ColorTranslator:
         rgb_img[:,:,2] = 1.164 * (yuv_img[:,:,0] - 16) + 2.018 * (yuv_img[:,:,1] - 128)                                     # B
 
         return rgb_img #np.clip(rgb_img, 0, 255).astype(np.uint8)
+
+
+def blur_chroma(yuv_img):
+# 1. apply a 2D FFT to Cb and Cr channels
+    Cb = yuv_img[:,:,1]
+    fft_Cb = fft2(Cb)
+    fft_shifted_Cb = fftshift(fft_Cb) # low freq at the center  
+    Cr = yuv_img[:,:,2]
+    fft_Cr = fft2(Cr)
+    fft_shifted_Cr = fftshift(fft_Cr) # low freq at the center
+# 2. create the LPF: a black image with a white circle on the center
+    center = (yuv_img.shape[1]//2, yuv_img.shape[0]//2)
+    radius = 34     # this cotrols the cutoff frequency
+    color = 1       # white
+    thickness = -1  # paint the inside of the circle 
+    im = np.zeros((yuv_img.shape[0], yuv_img.shape[1]), dtype=np.uint8)
+    lpf = cv2.circle(im, center, radius, color, thickness)
+# 3. apply the LPF to both images:
+    Cb_LPF = np.real(ifft2(ifftshift(fft_shifted_Cb * lpf)))
+
+    Cr_LPF = np.real(ifft2(ifftshift(fft_shifted_Cr * lpf)))
+
+# 4. create the blurred image:
+    blur_img = yuv_img.copy() # the Y (luma) channel will stay untouched
+    blur_img[:,:,1] = Cb_LPF
+    blur_img[:,:,2] = Cr_LPF
+
+    return blur_img
+
+def blur_luma(yuv_img):
+# 1. apply a 2D FFT to Y channel
+    Y_channel = yuv_img[:,:,0]
+    fft_Y = fft2(Y_channel)
+    fft_shifted_Y = fftshift(fft_Y) # low freq at the center  
+# 2. create the LPF: a black image with a white circle on the center
+    center = (yuv_img.shape[1]//2, yuv_img.shape[0]//2) # (horizontal , vertical) coordiantes
+    radius = 34     # this cotrols the cutoff frequency
+    color = 1       # white
+    thickness = -1  # paint the inside of the circle 
+    im = np.zeros((yuv_img.shape[0], yuv_img.shape[1]), dtype=np.uint8)
+    lpf = cv2.circle(im, center, radius, color, thickness)
+# 3. apply the LPF to both images:
+    Y_lpf = np.real(ifft2(ifftshift(fft_shifted_Y * lpf)))
+
+# 4. create the blurred image:
+    blur_img = yuv_img.copy() # the Cb and Cr channels will stay untouched
+    blur_img[:,:,0] = Y_lpf
+
+    return blur_img
 
 if __name__ == "__main__":
 
@@ -58,5 +113,25 @@ if __name__ == "__main__":
     
     for ax in axes.flat:
         ax.axis('off')
+        
+    plt.show()
+
+
+    fig2, axes2 = plt.subplots(1, 2, figsize=(15, 5))
+
+    # 1. Show the luma blurred image:
+    y_lpf_yuv = blur_luma(yuv_result)
+    y_lpf_rgb = translator.yuv_to_rgb(y_lpf_yuv)
+    axes2[0].imshow(np.clip(y_lpf_rgb, 0, 255).astype(np.uint8))
+    axes2[0].set_title("Luma Blurred")
+
+    # 2. Show the chroma blurred image:
+    Cb_Cr_lpf_yuv = blur_chroma(yuv_result)
+    Cb_Cr_lpf_rgb = translator.yuv_to_rgb(Cb_Cr_lpf_yuv)
+    axes2[1].imshow(np.clip(Cb_Cr_lpf_rgb, 0, 255).astype(np.uint8))
+    axes2[1].set_title("Chroma Blurred")
+
+    for ax2 in axes2.flat:
+        ax2.axis('off')
         
     plt.show()
