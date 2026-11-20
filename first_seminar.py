@@ -7,7 +7,9 @@ from scipy.fft import fft2, ifft2, fftshift, fft, ifft, ifftshift
 import cv2
 import math
 
-import subprocess
+import subprocess   # to run ffmpeg commands
+
+import argparse     # to run the .py with inputs  
 
 FFMPEG_PATH = "C:/Users/adria/Downloads/ffmpeg-9.0.2/ffmpeg-9.0.2"
 
@@ -83,16 +85,24 @@ class ColorTranslator:
         return blur_img
 
 
-    def ffmpeg_resize(self, factor):
+    def ffmpeg_resize(self, factor, sws_falg=None):
         i = "Barns_grand_tetons"
-        o = f"res{factor}_{i}"
+        o = f"bicubic{factor}_{i}"
         command = [
             "ffmpeg",
             "-y",
             "-i", f"{i}.jpg",
             "-vf", f"scale=iw/{factor}:ih/{factor}", # resize the image by factor
-            f"{o}.jpg"
         ]
+
+        # If sws_flag is provided then:
+        if sws_falg:
+            command.extend(["-sws_flags", sws_falg])
+            o = f"{sws_falg}{factor}_{i}"
+            
+        # Finally, append the output file
+        command.append(f"{o}.jpg")
+
         if subprocess.run(command).returncode == 0:
             print ("FFmpeg Script Ran Successfully")
         else:
@@ -100,64 +110,147 @@ class ColorTranslator:
         
         return
 
+    def zigzag(self, mat8): # input a matrix of size 8x8
+        # source code: https://www.geeksforgeeks.org/dsa/print-matrix-diagonal-pattern/ 
+        n = len(mat8)
+        if n != 8:
+            print("Matrix size must be 8x8")
+            return
+        
+        # mode - switch to derive up/down traversal
+        # it - iterator count - increases until it
+        # reaches n and then decreases
+        mode = 0
+        it = 0
+        lower = 0
+
+        ans = []
+
+        # 2n-1 will be the number of diagonals
+        for t in range(2 * n - 1):
+
+            t1 = t
+
+            if t1 >= n:
+                mode += 1
+                t1 = n - 1
+                it -= 1
+                lower += 1
+            else:
+                lower = 0
+                it += 1
+
+            for i in range(t1, lower - 1, -1):
+
+                if (t1 + mode) % 2 == 0:
+                    ans.append(mat8[i][t1 + lower - i])
+                else:
+                    ans.append(mat8[t1 + lower - i][i])
+
+        print(ans)
+        return ans
+
+
+    def inverse_zigzag(self, num_list):
+        if len(num_list) != 64:
+            print("List must contain only 64 numbers")
+            return
+
+        
+        
+    
+
 if __name__ == "__main__":
+
+    # Setup Argument Parser
+    parser = argparse.ArgumentParser(description="Run a specific exercise")
+    parser.add_argument("exercise", type=int, choices=[2, 3, 4, 5, 6, 7, 8, 9], help="Enter an exercise number from 2 to 9")
+    args = parser.parse_args()
 
     translator = ColorTranslator()
 
-    original_image = plt.imread("Barns_grand_tetons.jpg") # load the RGB image; range [0-255]
+    if args.exercise == 2:
+        original_image = plt.imread("Barns_grand_tetons.jpg") # load the RGB image; range [0-255]
 
-    # Convert image to YUV space and recover it to RGB again:
-    yuv_result = translator.rgb_to_yuv(original_image)
-    rgb_restored = translator.yuv_to_rgb(yuv_result)
+        # Convert image to YUV space and recover it to RGB again:
+        yuv_result = translator.rgb_to_yuv(original_image)
+        rgb_restored = translator.yuv_to_rgb(yuv_result)
 
-    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
-    
-    axes[0,0].imshow(original_image)
-    axes[0,0].set_title("Original RGB")
-    
-    axes[0,1].imshow(np.clip(yuv_result, 0, 255).astype(np.uint8))
-    axes[0,1].set_title("YUV Space (Visualized as RGB)")
-    
-    axes[1,0].imshow(np.clip(rgb_restored, 0, 255).astype(np.uint8))
-    axes[1,0].set_title("Restored RGB")
-
-    # visualize the quantization error (when clamping and casting to an integer):
-    abs_error = np.abs(rgb_restored - original_image.astype(np.float32))
-    mae = np.mean(abs_error, axis=-1) # mean absolute error of each pixel (mean over the last dimension)
-    min_err = np.min(mae)
-    max_err = np.max(mae)
-    im = axes[1,1].imshow(mae/max_err, cmap='inferno')
-    axes[1,1].set_title("Mean Absolute Error: |recovered - original|")
-    fig.colorbar(im, ax=axes[1,1], fraction=0.046, pad=0.04)
-
-    print(f"Minimum MAE: {min_err}")
-    print(f"Maximum MAE: {max_err}")
-    
-    for ax in axes.flat:
-        ax.axis('off')
+        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
         
-    plt.show()
-
-
-    fig2, axes2 = plt.subplots(1, 2, figsize=(15, 5))
-
-    # 1. Show the luma blurred image:
-    y_lpf_yuv = translator.blur_luma(yuv_result)
-    y_lpf_rgb = translator.yuv_to_rgb(y_lpf_yuv)
-    axes2[0].imshow(np.clip(y_lpf_rgb, 0, 255).astype(np.uint8))
-    axes2[0].set_title("Luma Blurred")
-
-    # 2. Show the chroma blurred image:
-    Cb_Cr_lpf_yuv = translator.blur_chroma(yuv_result)
-    Cb_Cr_lpf_rgb = translator.yuv_to_rgb(Cb_Cr_lpf_yuv)
-    axes2[1].imshow(np.clip(Cb_Cr_lpf_rgb, 0, 255).astype(np.uint8))
-    axes2[1].set_title("Chroma Blurred")
-
-    for ax2 in axes2.flat:
-        ax2.axis('off')
-
-    translator.ffmpeg_resize(2) # resize image by 1/2
-    translator.ffmpeg_resize(4) # resize image by 1/4
-    translator.ffmpeg_resize(8) # resize image by 1/8
+        axes[0,0].imshow(original_image)
+        axes[0,0].set_title("Original RGB")
         
-    plt.show()
+        axes[0,1].imshow(np.clip(yuv_result, 0, 255).astype(np.uint8))
+        axes[0,1].set_title("YUV Space (Visualized as RGB)")
+        
+        axes[1,0].imshow(np.clip(rgb_restored, 0, 255).astype(np.uint8))
+        axes[1,0].set_title("Restored RGB")
+
+        # visualize the quantization error (when clamping and casting to an integer):
+        abs_error = np.abs(rgb_restored - original_image.astype(np.float32))
+        mae = np.mean(abs_error, axis=-1) # mean absolute error of each pixel (mean over the last dimension)
+        min_err = np.min(mae)
+        max_err = np.max(mae)
+        im = axes[1,1].imshow(mae/max_err, cmap='inferno')
+        axes[1,1].set_title("Mean Absolute Error: |recovered - original|")
+        fig.colorbar(im, ax=axes[1,1], fraction=0.046, pad=0.04)
+
+        print(f"Minimum MAE: {min_err}")
+        print(f"Maximum MAE: {max_err}")
+        
+        for ax in axes.flat:
+            ax.axis('off')
+            
+        plt.show()
+
+
+    elif args.exercise == 3:
+        # Convert image to YUV space:
+        original_image = plt.imread("Barns_grand_tetons.jpg") # load the RGB image; range [0-255]
+        yuv_result = translator.rgb_to_yuv(original_image)
+
+        fig2, axes2 = plt.subplots(1, 2, figsize=(15, 5))
+
+        # 1. Show the luma blurred image:
+        y_lpf_yuv = translator.blur_luma(yuv_result)
+        y_lpf_rgb = translator.yuv_to_rgb(y_lpf_yuv)
+        axes2[0].imshow(np.clip(y_lpf_rgb, 0, 255).astype(np.uint8))
+        axes2[0].set_title("Luma Blurred")
+
+        # 2. Show the chroma blurred image:
+        Cb_Cr_lpf_yuv = translator.blur_chroma(yuv_result)
+        Cb_Cr_lpf_rgb = translator.yuv_to_rgb(Cb_Cr_lpf_yuv)
+        axes2[1].imshow(np.clip(Cb_Cr_lpf_rgb, 0, 255).astype(np.uint8))
+        axes2[1].set_title("Chroma Blurred")
+
+        for ax2 in axes2.flat:
+            ax2.axis('off')
+        
+        plt.show()
+
+    elif args.exercise == 4:
+        # Default sws_falg = 'bicubic'
+        translator.ffmpeg_resize(2) # resize image by 1/2
+        translator.ffmpeg_resize(4) # resize image by 1/4
+        translator.ffmpeg_resize(8) # resize image by 1/8
+
+        # Compare with 'gauss':
+        translator.ffmpeg_resize(2, 'gauss') # resize image by 1/2
+        translator.ffmpeg_resize(8, 'gauss') # resize image by 1/8
+
+    elif args.exercise == 5:
+        mat8 = [[ 0,  1,  5,  6, 14, 15, 27, 28],
+                [ 2,  4,  7, 13, 16, 26, 29, 42],
+                [ 3,  8, 12, 17, 25, 30, 41, 43],
+                [ 9, 11, 18, 24, 31, 40, 44, 53],
+                [10, 19, 23, 32, 39, 45, 52, 54],
+                [20, 22, 33, 38, 46, 51, 55, 60],
+                [21, 34, 37, 47, 50, 56, 59, 61],
+                [35, 36, 48, 49, 57, 58, 62, 63]
+            ]
+
+        # if we read that matrix with the zigzag pattern we will get
+        # an ordered list of numbers from 0 to 63. 
+        res = translator.zigzag(mat8)
+
