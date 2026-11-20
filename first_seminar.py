@@ -8,6 +8,7 @@ import cv2
 import math
 
 import subprocess   # to run ffmpeg commands
+from dahuffman import HuffmanCodec
 
 import argparse     # to run the .py with inputs  
 
@@ -157,7 +158,7 @@ class ColorTranslator:
                 else:
                     ans.append(mat8[t1 + lower - i][i])
 
-        print(ans)
+        # print(ans)
         return ans
 
 
@@ -201,7 +202,7 @@ class ColorTranslator:
                     mat8[t1 + lower - i][i] = num_list[idx]
                     idx += 1
 
-        print(mat8)
+        # print(mat8)
         return mat8
 
 class DCT8x8:
@@ -272,8 +273,8 @@ class DCT8x8:
         #we now apply inverse quantization -> we multiply each quantized coefficient by the corresponding value in the quantization table to recover
         #an aproximation fo the original dct coefficents
         coefficients = quantized * self.Q
-        vertical_idct = dct(block, axis=0, norm="ortho")
-        block = dct(vertical_idct, axis=1, norm= "ortho")
+        vertical_idct = idct(coefficients, axis=0, norm="ortho")
+        block = idct(vertical_idct, axis=1, norm= "ortho")
 
         # we undo the jpeg level shift by adding 128.
         block = block + 128
@@ -307,7 +308,53 @@ class DCT8x8:
             decoded.extend ([value]*count) #extend adds all the elements of a list to another list one by one
 
         return decoded
-            
+
+
+    def huffman_encoder(self, rle_enc):
+        codec = HuffmanCodec.from_data(rle_enc)
+        return codec
+
+    
+def mini_jpeg(img, dct8x8, translator):
+
+# 1. Y channel:
+    y_chan = (translator.rgb_to_yuv(img))[:,:,0]
+    h,w = y_chan.shape
+# 2. we apply padding:
+    # new img size:
+    new_h = int(8 * np.ceil(h/8)) 
+    new_w = int(8 * np.ceil(w/8))
+    # padding:
+    pad_h = new_h - h
+    pad_w = new_w - w
+    padded_y = np.pad(y_chan, ((0, pad_h), (0, pad_w)), mode='edge')
+# 3. 8x8 blocks:
+    rle_encoding = []
+    for i in range(0, new_h, 8):
+        for j in range(0, new_w, 8):
+            block = padded_y[i:i+8, j:j+8]
+            encoded_block = dct8x8.encode(block) # DCT quantized coefficients
+            rle_list = dct8x8.run_length_encoder(translator.zigzag(encoded_block)) # list of tuples (value,repetitions)
+            rle_encoding.append(rle_list)
+    
+# 4. Decode the RLE
+    rle_decoded = []
+    for rle_block in rle_encoding: # for each 8x8 block we have a list of its RLE
+        rle_decoded.extend(dct8x8.run_length_decoder(rle_block))
+# 5. Iterate over each 8x8 block (every 64 elements):
+    decoded_img = np.zeros_like(padded_y, dtype=np.float32) # new image
+    idx = 0
+    for i in range(0, new_h, 8):
+        for j in range(0, new_w, 8):
+            block = translator.inverse_zigzag(rle_decoded[idx: idx+64]) # convert back to an 8x8 matrix
+            idct = dct8x8.decode(block) # dequantization and IDCT
+            decoded_img[i:i+8, j:j+8] = idct
+            idx += 64
+    unpadded_img = decoded_img[:h, :w]
+    return rle_encoding, unpadded_img
+
+
+
 
 if __name__ == "__main__":
 
@@ -416,11 +463,46 @@ if __name__ == "__main__":
         num_list = translator.zigzag(block)
         dct8x8 = DCT8x8(quality=100)
 
-        encoded_list= dct8x8.run_length_encoder(num_list)
-        print(encoded_list)
+        rle_list= dct8x8.run_length_encoder(num_list)
+        print(rle_list)
 
-        decoded_list = dct8x8.run_length_decoder(encoded_list)
+        decoded_list = dct8x8.run_length_decoder(rle_list)
         print(decoded_list)
 
+        codec = dct8x8.huffman_encoder(rle_list)
+        print(codec.print_code_table())
+        encoded_list = codec.encode(rle_list)
+        cadena_bits = ''.join(format(byte, '08b') for byte in encoded_list)
+        print(f"Bits comprimidos ({len(cadena_bits)} bits): {cadena_bits}")
         
+    elif args.exercise == 8:
+        original_image = plt.imread("Barns_grand_tetons.jpg") # load the RGB image; range [0-255] 
+        dct8x8 = DCT8x8(quality=100)
+        rle_code_100, decoded_img_100 = mini_jpeg(original_image, dct8x8, translator)
+
+        dct8x8 = DCT8x8(quality=50)
+        rle_code_50, decoded_img_50 = mini_jpeg(original_image, dct8x8, translator)
+
+        fig, axes = plt.subplots(1, 3, figsize=(12, 6))
+        
+        # Plot original image
+        axes[0].imshow((translator.rgb_to_yuv(original_image))[:,:,0])
+        axes[0].set_title('Original Image (Y channel)')
+        axes[0].axis('off')
+        
+        # Plot decoded image 
+        axes[1].imshow(decoded_img_100)
+        axes[1].set_title('Decoded Image Q=100 (Y Channel)')
+        axes[1].axis('off')
+
+        # Plot decoded image 
+        axes[2].imshow(decoded_img_50)
+        axes[2].set_title('Decoded Image Q=50 (Y Channel)')
+        axes[2].axis('off')
+        
+        plt.tight_layout()
+        plt.show()
+        
+
+
         
